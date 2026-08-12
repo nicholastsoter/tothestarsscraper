@@ -2,6 +2,7 @@ import importlib
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -304,6 +305,47 @@ class ContactedTests(ApiTestCase):
         body = response.json()
         self.assertFalse(body["contacted"])
         self.assertIsNone(body["contacted_at"])
+
+
+class ContactedStatsTests(ApiTestCase):
+    def test_stats_requires_auth(self):
+        response = self.client.get("/api/contacted/stats")
+        self.assertEqual(response.status_code, 401)
+
+    def test_stats_start_at_zero(self):
+        response = self.client.get("/api/contacted/stats", auth=AUTH)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"today": 0, "this_week": 0})
+
+    def test_marking_contacted_increments_today_and_week(self):
+        self.client.post("/api/contacted", json={"place_id": "place_A", "contacted": True}, auth=AUTH)
+        self.client.post("/api/contacted", json={"place_id": "place_B", "contacted": True}, auth=AUTH)
+
+        response = self.client.get("/api/contacted/stats", auth=AUTH)
+        body = response.json()
+        self.assertEqual(body["today"], 2)
+        self.assertEqual(body["this_week"], 2)
+
+    def test_unmarking_decrements_stats(self):
+        self.client.post("/api/contacted", json={"place_id": "place_A", "contacted": True}, auth=AUTH)
+        self.client.post("/api/contacted", json={"place_id": "place_B", "contacted": True}, auth=AUTH)
+        self.client.post("/api/contacted", json={"place_id": "place_A", "contacted": False}, auth=AUTH)
+
+        response = self.client.get("/api/contacted/stats", auth=AUTH)
+        body = response.json()
+        self.assertEqual(body["today"], 1)
+        self.assertEqual(body["this_week"], 1)
+
+    def test_count_contacted_since_excludes_marks_before_the_window(self):
+        # Exercise the db layer directly with a controlled timestamp, since
+        # the API always stamps contacted_at with the current wall clock.
+        self.main.store.set_contacted("place_old", True, AUTH[0])
+
+        far_future = time.time() + 3600 * 24 * 365
+        self.assertEqual(self.main.store.count_contacted_since(far_future), 0)
+
+        far_past = time.time() - 3600 * 24 * 365
+        self.assertEqual(self.main.store.count_contacted_since(far_past), 1)
 
 
 class TemplatesTests(ApiTestCase):

@@ -43,12 +43,26 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
 
 header h1 { font-size: 1.1rem; margin: 0; }
+
+.contacted-stats {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.contacted-stats .stat strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
 
 nav { display: flex; gap: 0.5rem; }
 
@@ -246,7 +260,7 @@ tr.row-contacted:hover { opacity: 0.85; }
 .search-layout form { flex: 1 1 28rem; margin-bottom: 0; }
 
 .templates-panel {
-  flex: 0 0 16rem;
+  flex: 0 0 22rem;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -303,6 +317,14 @@ tr.row-contacted:hover { opacity: 0.85; }
   color: var(--text);
   font-size: 0.85rem;
   font-family: inherit;
+}
+
+/* Reps read this live while on the phone, so it needs to show a full
+   script without scrolling — much taller than the email template box. */
+.template-text[data-key="call_script"] {
+  min-height: 28rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .template-actions {

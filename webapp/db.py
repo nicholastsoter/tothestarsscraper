@@ -174,6 +174,21 @@ class SearchStore:
         finally:
             conn.close()
 
+    def count_contacted_since(self, since_epoch: float) -> int:
+        """Counts businesses currently marked contacted whose contacted_at
+        falls at or after since_epoch. A box that's since been unchecked has
+        contacted=0 and drops out on its own — this only counts boxes that
+        are checked right now, within the given window."""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM contacted WHERE contacted = 1 AND contacted_at >= ?",
+                (since_epoch,),
+            ).fetchone()
+            return row["n"]
+        finally:
+            conn.close()
+
     def get_templates(self, keys: list) -> dict:
         """Returns {key: {"content": str, "updated_at": float|None,
         "updated_by": str|None}}. Keys with no saved row yet come back with

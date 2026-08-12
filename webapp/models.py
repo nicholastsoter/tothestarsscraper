@@ -49,6 +49,11 @@ class ContactedResponse(BaseModel):
     contacted_at: Optional[float] = None
 
 
+class ContactedStats(BaseModel):
+    today: int
+    this_week: int
+
+
 class SearchResponse(BaseModel):
     leads: List[Lead]
     search_id: int

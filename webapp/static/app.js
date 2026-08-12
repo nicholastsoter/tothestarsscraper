@@ -46,6 +46,7 @@ function showLogin(message) {
 function hideLogin() {
   loginOverlay.classList.add("hidden");
   loadTemplates();
+  loadContactedStats();
 }
 
 loginForm.addEventListener("submit", async (event) => {
@@ -70,6 +71,19 @@ if (getAuthHeader()) {
   hideLogin();
 } else {
   showLogin("");
+}
+
+// ---------------------------------------------------------------------------
+// Contacted stats — how many businesses got marked Contacted today / this
+// week, refreshed on load and after every checkbox toggle.
+// ---------------------------------------------------------------------------
+
+async function loadContactedStats() {
+  const response = await apiFetch("/api/contacted/stats");
+  if (!response.ok) return;
+  const stats = await response.json();
+  document.getElementById("stat-today").textContent = stats.today;
+  document.getElementById("stat-week").textContent = stats.this_week;
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +359,7 @@ async function toggleContacted(lead, checkbox, tr) {
     lead.contacted_at = data.contacted_at;
     checkbox.title = contactedTitle(lead);
     tr.classList.toggle("row-contacted", lead.contacted);
+    loadContactedStats();
   } catch (err) {
     checkbox.checked = !nextValue;
     setStatus(err.message, "error");

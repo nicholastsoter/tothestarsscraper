@@ -4,6 +4,7 @@ search/filter/score pipeline — no scoring or Places-API logic lives here."""
 import os
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ from db import SearchStore  # noqa: E402
 from models import (  # noqa: E402
     ContactedRequest,
     ContactedResponse,
+    ContactedStats,
     HistoryDetail,
     HistoryEntry,
     Lead,
@@ -71,6 +73,18 @@ def get_cache() -> find_leads.Cache:
 
 def get_email_fetch():
     return requests.get
+
+
+def _start_of_today_epoch() -> float:
+    now = datetime.now()
+    return datetime(now.year, now.month, now.day).timestamp()
+
+
+def _start_of_week_epoch() -> float:
+    """Start of the current ISO week (Monday 00:00, server-local time)."""
+    now = datetime.now()
+    start_of_today = datetime(now.year, now.month, now.day)
+    return (start_of_today - timedelta(days=start_of_today.weekday())).timestamp()
 
 
 def _attach_contacted_status(leads: list) -> list:
@@ -173,6 +187,13 @@ def history_detail(search_id: int, username: str = Depends(require_auth)):
 def set_contacted(request: ContactedRequest, username: str = Depends(require_auth)):
     result = store.set_contacted(request.place_id, request.contacted, username)
     return ContactedResponse(**result)
+
+
+@app.get("/api/contacted/stats", response_model=ContactedStats)
+def contacted_stats(username: str = Depends(require_auth)):
+    today = store.count_contacted_since(_start_of_today_epoch())
+    this_week = store.count_contacted_since(_start_of_week_epoch())
+    return ContactedStats(today=today, this_week=this_week)
 
 
 @app.get("/api/templates", response_model=dict[str, TemplateResponse])
