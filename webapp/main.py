@@ -27,7 +27,17 @@ from models import HistoryDetail, HistoryEntry, Lead, SearchRequest, SearchRespo
 
 app = FastAPI(title="To The Stars Ratings — Lead Finder")
 
-DB_PATH = Path(os.environ.get("LEADS_DB_PATH", WEBAPP_DIR / "leads.db"))
+# Vercel's Python runtime filesystem is read-only outside /tmp, and /tmp
+# itself isn't shared or persisted across invocations/cold starts. Locally
+# (and on any host with a normal writable disk) this keeps writing next to
+# main.py as before, so leads.db and the cache actually persist there.
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+DEFAULT_DB_PATH = Path("/tmp/leads.db") if IS_VERCEL else WEBAPP_DIR / "leads.db"
+
+if IS_VERCEL:
+    find_leads.CACHE_FILE = Path("/tmp/places_cache.json")
+
+DB_PATH = Path(os.environ.get("LEADS_DB_PATH", DEFAULT_DB_PATH))
 store = SearchStore(DB_PATH)
 
 RATE_LIMIT_PER_HOUR = int(os.environ.get("RATE_LIMIT_PER_HOUR", "20"))
