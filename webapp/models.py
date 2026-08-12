@@ -34,6 +34,19 @@ class Lead(BaseModel):
     score: str
     reasoning: str
     place_id: str
+    contacted: bool = False
+    contacted_at: Optional[float] = None
+
+
+class ContactedRequest(BaseModel):
+    place_id: str
+    contacted: bool
+
+
+class ContactedResponse(BaseModel):
+    place_id: str
+    contacted: bool
+    contacted_at: Optional[float] = None
 
 
 class SearchResponse(BaseModel):
@@ -57,3 +70,14 @@ class HistoryEntry(BaseModel):
 
 class HistoryDetail(HistoryEntry):
     results: List[Lead]
+
+
+class TemplateContent(BaseModel):
+    content: str
+
+
+class TemplateResponse(BaseModel):
+    key: str
+    content: str
+    updated_at: Optional[float] = None
+    updated_by: Optional[str] = None

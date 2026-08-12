@@ -23,7 +23,19 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 import find_leads  # noqa: E402
 from auth import require_auth  # noqa: E402
 from db import SearchStore  # noqa: E402
-from models import HistoryDetail, HistoryEntry, Lead, SearchRequest, SearchResponse  # noqa: E402
+from models import (  # noqa: E402
+    ContactedRequest,
+    ContactedResponse,
+    HistoryDetail,
+    HistoryEntry,
+    Lead,
+    SearchRequest,
+    SearchResponse,
+    TemplateContent,
+    TemplateResponse,
+)
+
+TEMPLATE_KEYS = ("call_script", "email_template")
 
 app = FastAPI(title="To The Stars Ratings — Lead Finder")
 
@@ -59,6 +71,18 @@ def get_cache() -> find_leads.Cache:
 
 def get_email_fetch():
     return requests.get
+
+
+def _attach_contacted_status(leads: list) -> list:
+    """Merges in current "contacted" state from its own table rather than
+    trusting whatever's in a stored search's frozen results_json — contacted
+    status can change well after a search was run or recorded."""
+    contacted_map = store.get_contacted_map([lead["place_id"] for lead in leads])
+    for lead in leads:
+        status = contacted_map.get(lead["place_id"], {})
+        lead["contacted"] = status.get("contacted", False)
+        lead["contacted_at"] = status.get("contacted_at")
+    return leads
 
 
 def enforce_rate_limit(username: str) -> None:
@@ -126,6 +150,7 @@ def search(request: SearchRequest, username: str = Depends(require_auth)):
 
     was_live_call = call_stats.get("live_api_call", False)
     search_id = store.record_search(username, request.model_dump(), leads, was_live_call=was_live_call)
+    leads = _attach_contacted_status(leads)
 
     return SearchResponse(leads=[Lead(**lead) for lead in leads], search_id=search_id)
 
@@ -140,7 +165,28 @@ def history_detail(search_id: int, username: str = Depends(require_auth)):
     entry = store.get_search(search_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Search not found")
+    entry["results"] = _attach_contacted_status(entry["results"])
     return entry
+
+
+@app.post("/api/contacted", response_model=ContactedResponse)
+def set_contacted(request: ContactedRequest, username: str = Depends(require_auth)):
+    result = store.set_contacted(request.place_id, request.contacted, username)
+    return ContactedResponse(**result)
+
+
+@app.get("/api/templates", response_model=dict[str, TemplateResponse])
+def get_templates(username: str = Depends(require_auth)):
+    templates = store.get_templates(list(TEMPLATE_KEYS))
+    return {key: TemplateResponse(key=key, **value) for key, value in templates.items()}
+
+
+@app.put("/api/templates/{key}", response_model=TemplateResponse)
+def set_template(key: str, request: TemplateContent, username: str = Depends(require_auth)):
+    if key not in TEMPLATE_KEYS:
+        raise HTTPException(status_code=404, detail=f"Unknown template key: {key}")
+    result = store.set_template(key, request.content, username)
+    return TemplateResponse(**result)
 
 
 app.mount("/", StaticFiles(directory=str(WEBAPP_DIR / "static"), html=True), name="static")

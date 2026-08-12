@@ -1,4 +1,4 @@
-const COLUMNS = ["business_name", "address", "phone", "website", "email", "rating", "review_count", "score", "reasoning"];
+const COLUMNS = ["business_name", "address", "phone", "website", "email", "rating", "review_count", "score", "reasoning", "contacted"];
 const SCORE_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
 let currentLeads = [];
@@ -45,6 +45,7 @@ function showLogin(message) {
 
 function hideLogin() {
   loginOverlay.classList.add("hidden");
+  loadTemplates();
 }
 
 loginForm.addEventListener("submit", async (event) => {
@@ -69,6 +70,56 @@ if (getAuthHeader()) {
   hideLogin();
 } else {
   showLogin("");
+}
+
+// ---------------------------------------------------------------------------
+// Templates — Call Script / Email Template text, shared across the team and
+// persisted server-side (not just saved in this browser).
+// ---------------------------------------------------------------------------
+
+async function loadTemplates() {
+  const response = await apiFetch("/api/templates");
+  if (!response.ok) return;
+  const templates = await response.json();
+  for (const [key, data] of Object.entries(templates)) {
+    const textarea = document.querySelector(`.template-text[data-key="${key}"]`);
+    if (textarea) textarea.value = data.content || "";
+  }
+}
+
+document.querySelectorAll(".template-save").forEach((button) => {
+  button.addEventListener("click", () => saveTemplate(button.dataset.key));
+});
+
+async function saveTemplate(key) {
+  const textarea = document.querySelector(`.template-text[data-key="${key}"]`);
+  const statusEl = document.querySelector(`.template-status[data-key="${key}"]`);
+  const button = document.querySelector(`.template-save[data-key="${key}"]`);
+
+  button.disabled = true;
+  statusEl.textContent = "Saving…";
+  statusEl.className = "template-status";
+
+  try {
+    const response = await apiFetch(`/api/templates/${key}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: textarea.value }),
+    });
+
+    if (!response.ok) {
+      const body = await safeJson(response);
+      throw new Error(body?.detail || `Failed to save (HTTP ${response.status})`);
+    }
+
+    statusEl.textContent = "Saved";
+    statusEl.className = "template-status saved";
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = "template-status error";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +305,52 @@ function buildRow(lead) {
 
   tr.appendChild(cell(lead.reasoning, "wrap"));
 
+  const contactedTd = document.createElement("td");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = !!lead.contacted;
+  checkbox.title = contactedTitle(lead);
+  checkbox.addEventListener("change", () => toggleContacted(lead, checkbox, tr));
+  contactedTd.appendChild(checkbox);
+  tr.appendChild(contactedTd);
+
+  tr.classList.toggle("row-contacted", !!lead.contacted);
+
   return tr;
+}
+
+function contactedTitle(lead) {
+  if (!lead.contacted_at) return "Mark as contacted";
+  return `Marked contacted ${new Date(lead.contacted_at * 1000).toLocaleString()}`;
+}
+
+async function toggleContacted(lead, checkbox, tr) {
+  const nextValue = checkbox.checked;
+  checkbox.disabled = true;
+
+  try {
+    const response = await apiFetch("/api/contacted", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ place_id: lead.place_id, contacted: nextValue }),
+    });
+
+    if (!response.ok) {
+      const body = await safeJson(response);
+      throw new Error(body?.detail || `Failed to update (HTTP ${response.status})`);
+    }
+
+    const data = await response.json();
+    lead.contacted = data.contacted;
+    lead.contacted_at = data.contacted_at;
+    checkbox.title = contactedTitle(lead);
+    tr.classList.toggle("row-contacted", lead.contacted);
+  } catch (err) {
+    checkbox.checked = !nextValue;
+    setStatus(err.message, "error");
+  } finally {
+    checkbox.disabled = false;
+  }
 }
 
 function cell(value, className) {
@@ -273,7 +369,7 @@ function exportCsv(leads) {
   const lines = [header.join(",")];
 
   for (const lead of leads) {
-    lines.push(header.map((key) => csvEscape(lead[key])).join(","));
+    lines.push(header.map((key) => csvEscape(formatForCsv(lead, key))).join(","));
   }
 
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -283,6 +379,11 @@ function exportCsv(leads) {
   a.download = "leads.csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function formatForCsv(lead, key) {
+  if (key === "contacted") return lead.contacted ? "Yes" : "No";
+  return lead[key];
 }
 
 function csvEscape(value) {

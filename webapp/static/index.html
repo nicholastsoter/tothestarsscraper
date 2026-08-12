@@ -34,72 +34,98 @@
 
 <main>
   <section id="search-tab" class="tab-panel active">
-    <form id="search-form">
-      <div class="field-row">
-        <label>
-          City
-          <input type="text" id="city" name="city" placeholder="Salt Lake City, UT" required>
-        </label>
-        <label>
-          Category
-          <input type="text" id="category" name="category" list="category-options" placeholder="hair salon" required>
-          <datalist id="category-options">
-            <option value="hair salon">
-            <option value="nail salon">
-            <option value="auto repair">
-            <option value="hvac contractor">
-            <option value="landscaping">
-            <option value="plumber">
-            <option value="electrician">
-            <option value="roofing contractor">
-            <option value="restaurant">
-            <option value="coffee shop">
-            <option value="dentist">
-            <option value="chiropractor">
-            <option value="gym">
-            <option value="pet groomer">
-            <option value="dry cleaner">
-            <option value="locksmith">
-            <option value="real estate agency">
-            <option value="insurance agency">
-            <option value="law firm">
-            <option value="accounting firm">
-          </datalist>
-        </label>
-      </div>
+    <div class="search-layout">
+      <form id="search-form">
+        <div class="field-row">
+          <label>
+            City
+            <input type="text" id="city" name="city" placeholder="Salt Lake City, UT" required>
+          </label>
+          <label>
+            Category
+            <input type="text" id="category" name="category" list="category-options" placeholder="hair salon" required>
+            <datalist id="category-options">
+              <option value="hair salon">
+              <option value="nail salon">
+              <option value="auto repair">
+              <option value="hvac contractor">
+              <option value="landscaping">
+              <option value="plumber">
+              <option value="electrician">
+              <option value="roofing contractor">
+              <option value="restaurant">
+              <option value="coffee shop">
+              <option value="dentist">
+              <option value="chiropractor">
+              <option value="gym">
+              <option value="pet groomer">
+              <option value="dry cleaner">
+              <option value="locksmith">
+              <option value="real estate agency">
+              <option value="insurance agency">
+              <option value="law firm">
+              <option value="accounting firm">
+            </datalist>
+          </label>
+        </div>
 
-      <div class="field-row">
-        <label>
-          Min reviews
-          <input type="number" id="min_reviews" name="min_reviews" min="0" step="1">
-        </label>
-        <label>
-          Max reviews
-          <input type="number" id="max_reviews" name="max_reviews" min="0" step="1">
-        </label>
-        <label>
-          Min rating
-          <input type="number" id="min_rating" name="min_rating" min="1" max="5" step="0.1">
-        </label>
-        <label>
-          Max rating
-          <input type="number" id="max_rating" name="max_rating" min="1" max="5" step="0.1">
-        </label>
-        <label>
-          Website
-          <select id="has_website" name="has_website">
-            <option value="">Any</option>
-            <option value="true">Has website</option>
-            <option value="false">No website</option>
-          </select>
-        </label>
-      </div>
+        <div class="field-row">
+          <label>
+            Min reviews
+            <input type="number" id="min_reviews" name="min_reviews" min="0" step="1">
+          </label>
+          <label>
+            Max reviews
+            <input type="number" id="max_reviews" name="max_reviews" min="0" step="1">
+          </label>
+          <label>
+            Min rating
+            <input type="number" id="min_rating" name="min_rating" min="1" max="5" step="0.1">
+          </label>
+          <label>
+            Max rating
+            <input type="number" id="max_rating" name="max_rating" min="1" max="5" step="0.1">
+          </label>
+          <label>
+            Website
+            <select id="has_website" name="has_website">
+              <option value="">Any</option>
+              <option value="true">Has website</option>
+              <option value="false">No website</option>
+            </select>
+          </label>
+        </div>
 
-      <div class="field-row actions">
-        <button type="submit" id="search-button">Search</button>
-        <button type="button" id="export-button" disabled>Export CSV</button>
-      </div>
-    </form>
+        <div class="field-row actions">
+          <button type="submit" id="search-button">Search</button>
+          <button type="button" id="export-button" disabled>Export CSV</button>
+        </div>
+      </form>
+
+      <aside class="templates-panel">
+        <details class="template-details">
+          <summary>Call Script</summary>
+          <div class="template-body">
+            <textarea class="template-text" data-key="call_script" placeholder="Write what your sales team should say on the phone..."></textarea>
+            <div class="template-actions">
+              <button type="button" class="template-save" data-key="call_script">Save</button>
+              <span class="template-status" data-key="call_script"></span>
+            </div>
+          </div>
+        </details>
+
+        <details class="template-details">
+          <summary>Email Template</summary>
+          <div class="template-body">
+            <textarea class="template-text" data-key="email_template" placeholder="Write the email your sales team should send..."></textarea>
+            <div class="template-actions">
+              <button type="button" class="template-save" data-key="email_template">Save</button>
+              <span class="template-status" data-key="email_template"></span>
+            </div>
+          </div>
+        </details>
+      </aside>
+    </div>
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
 
@@ -116,6 +142,7 @@
             <th data-key="review_count">Reviews</th>
             <th data-key="score">Score</th>
             <th data-key="reasoning">Why</th>
+            <th data-key="contacted">Contacted</th>
           </tr>
         </thead>
         <tbody></tbody>

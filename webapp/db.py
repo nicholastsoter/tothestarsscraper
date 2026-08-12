@@ -24,6 +24,20 @@ CREATE TABLE IF NOT EXISTS searches (
     results_json TEXT NOT NULL,
     was_live_call INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS contacted (
+    place_id TEXT PRIMARY KEY,
+    contacted INTEGER NOT NULL,
+    contacted_at REAL,
+    username TEXT
+);
+
+CREATE TABLE IF NOT EXISTS templates (
+    key TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    updated_at REAL,
+    updated_by TEXT
+);
 """
 
 
@@ -33,7 +47,7 @@ class SearchStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = self._connect()
         try:
-            conn.execute(SCHEMA)
+            conn.executescript(SCHEMA)
             conn.commit()
         finally:
             conn.close()
@@ -118,6 +132,91 @@ class SearchStore:
             summary = _row_to_summary(row)
             summary["results"] = json.loads(row["results_json"])
             return summary
+        finally:
+            conn.close()
+
+    def set_contacted(self, place_id: str, contacted: bool, username: str) -> dict:
+        conn = self._connect()
+        try:
+            contacted_at = time.time() if contacted else None
+            conn.execute(
+                """
+                INSERT INTO contacted (place_id, contacted, contacted_at, username)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(place_id) DO UPDATE SET
+                    contacted = excluded.contacted,
+                    contacted_at = excluded.contacted_at,
+                    username = excluded.username
+                """,
+                (place_id, 1 if contacted else 0, contacted_at, username),
+            )
+            conn.commit()
+            return {"place_id": place_id, "contacted": contacted, "contacted_at": contacted_at}
+        finally:
+            conn.close()
+
+    def get_contacted_map(self, place_ids: list) -> dict:
+        """Returns {place_id: {"contacted": bool, "contacted_at": float|None}}
+        for whichever of the given place_ids have a contacted record."""
+        if not place_ids:
+            return {}
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in place_ids)
+            rows = conn.execute(
+                f"SELECT place_id, contacted, contacted_at FROM contacted WHERE place_id IN ({placeholders})",
+                place_ids,
+            ).fetchall()
+            return {
+                row["place_id"]: {"contacted": bool(row["contacted"]), "contacted_at": row["contacted_at"]}
+                for row in rows
+            }
+        finally:
+            conn.close()
+
+    def get_templates(self, keys: list) -> dict:
+        """Returns {key: {"content": str, "updated_at": float|None,
+        "updated_by": str|None}}. Keys with no saved row yet come back with
+        content=''."""
+        conn = self._connect()
+        try:
+            placeholders = ",".join("?" for _ in keys)
+            rows = conn.execute(
+                f"SELECT key, content, updated_at, updated_by FROM templates WHERE key IN ({placeholders})",
+                keys,
+            ).fetchall()
+            saved = {
+                row["key"]: {
+                    "content": row["content"],
+                    "updated_at": row["updated_at"],
+                    "updated_by": row["updated_by"],
+                }
+                for row in rows
+            }
+            return {
+                key: saved.get(key, {"content": "", "updated_at": None, "updated_by": None})
+                for key in keys
+            }
+        finally:
+            conn.close()
+
+    def set_template(self, key: str, content: str, username: str) -> dict:
+        conn = self._connect()
+        try:
+            updated_at = time.time()
+            conn.execute(
+                """
+                INSERT INTO templates (key, content, updated_at, updated_by)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    content = excluded.content,
+                    updated_at = excluded.updated_at,
+                    updated_by = excluded.updated_by
+                """,
+                (key, content, updated_at, username),
+            )
+            conn.commit()
+            return {"key": key, "content": content, "updated_at": updated_at, "updated_by": username}
         finally:
             conn.close()
 

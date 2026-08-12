@@ -188,6 +188,10 @@ tr:last-child td { border-bottom: none; }
 .score-MEDIUM { color: var(--medium); background: var(--medium-bg); }
 .score-LOW { color: var(--low); background: var(--low-bg); }
 
+tr.row-contacted { opacity: 0.55; }
+tr.row-contacted:hover { opacity: 0.85; }
+#results-table td:has(input[type="checkbox"]) { text-align: center; }
+
 .login-overlay {
   position: fixed;
   inset: 0;
@@ -232,3 +236,83 @@ tr:last-child td { border-bottom: none; }
   color: var(--text);
   font-size: 0.9rem;
 }
+
+.search-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.search-layout form { flex: 1 1 28rem; margin-bottom: 0; }
+
+.templates-panel {
+  flex: 0 0 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+@media (max-width: 900px) {
+  .search-layout { flex-direction: column; }
+  .templates-panel { flex-basis: auto; width: 100%; }
+}
+
+.template-details {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.template-details summary {
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.template-details summary::-webkit-details-marker { display: none; }
+
+.template-details summary::after {
+  content: "\25BE";
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.template-details[open] summary::after { content: "\25B4"; }
+
+.template-body {
+  padding: 0 0.9rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.template-text {
+  width: 100%;
+  min-height: 8rem;
+  resize: vertical;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.template-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.template-save { padding: 0.35rem 0.8rem; font-size: 0.82rem; }
+
+.template-status { font-size: 0.78rem; color: var(--muted); }
+.template-status.saved { color: var(--high); }
+.template-status.error { color: var(--low); }

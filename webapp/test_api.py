@@ -250,5 +250,110 @@ class HistoryTests(ApiTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class ContactedTests(ApiTestCase):
+    def test_contacted_requires_auth(self):
+        response = self.client.post("/api/contacted", json={"place_id": "place_Tiny Salon", "contacted": True})
+        self.assertEqual(response.status_code, 401)
+
+    def test_search_results_default_to_not_contacted(self):
+        response = self.search()
+        leads = response.json()["leads"]
+        self.assertTrue(all(lead["contacted"] is False for lead in leads))
+        self.assertTrue(all(lead["contacted_at"] is None for lead in leads))
+
+    def test_marking_contacted_returns_confirmation(self):
+        response = self.client.post(
+            "/api/contacted", json={"place_id": "place_Tiny Salon", "contacted": True}, auth=AUTH
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["place_id"], "place_Tiny Salon")
+        self.assertTrue(body["contacted"])
+        self.assertIsNotNone(body["contacted_at"])
+
+    def test_contacted_status_reflected_in_next_search(self):
+        self.client.post("/api/contacted", json={"place_id": "place_Tiny Salon", "contacted": True}, auth=AUTH)
+
+        response = self.search()
+        by_name = {lead["business_name"]: lead for lead in response.json()["leads"]}
+        self.assertTrue(by_name["Tiny Salon"]["contacted"])
+        self.assertFalse(by_name["Mid Salon"]["contacted"])
+
+    def test_contacted_status_reflected_in_history_even_if_marked_after_the_search(self):
+        search_response = self.search()
+        search_id = search_response.json()["search_id"]
+
+        # Not yet contacted at search time.
+        by_name = {lead["business_name"]: lead for lead in search_response.json()["leads"]}
+        self.assertFalse(by_name["Tiny Salon"]["contacted"])
+
+        # Mark contacted afterward — history should reflect current state,
+        # not the snapshot frozen when the search was recorded.
+        self.client.post("/api/contacted", json={"place_id": "place_Tiny Salon", "contacted": True}, auth=AUTH)
+
+        detail = self.client.get(f"/api/history/{search_id}", auth=AUTH)
+        by_name2 = {lead["business_name"]: lead for lead in detail.json()["results"]}
+        self.assertTrue(by_name2["Tiny Salon"]["contacted"])
+
+    def test_unmarking_contacted_clears_contacted_at(self):
+        self.client.post("/api/contacted", json={"place_id": "place_Tiny Salon", "contacted": True}, auth=AUTH)
+        response = self.client.post(
+            "/api/contacted", json={"place_id": "place_Tiny Salon", "contacted": False}, auth=AUTH
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["contacted"])
+        self.assertIsNone(body["contacted_at"])
+
+
+class TemplatesTests(ApiTestCase):
+    def test_get_templates_requires_auth(self):
+        response = self.client.get("/api/templates")
+        self.assertEqual(response.status_code, 401)
+
+    def test_put_template_requires_auth(self):
+        response = self.client.put("/api/templates/call_script", json={"content": "Hi there"})
+        self.assertEqual(response.status_code, 401)
+
+    def test_get_templates_defaults_to_empty(self):
+        response = self.client.get("/api/templates", auth=AUTH)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(set(body.keys()), {"call_script", "email_template"})
+        for key in ("call_script", "email_template"):
+            self.assertEqual(body[key]["content"], "")
+            self.assertIsNone(body[key]["updated_at"])
+            self.assertIsNone(body[key]["updated_by"])
+
+    def test_saving_a_template_persists_and_is_returned_by_get(self):
+        put_response = self.client.put(
+            "/api/templates/call_script", json={"content": "Hi, this is Sales calling about..."}, auth=AUTH
+        )
+        self.assertEqual(put_response.status_code, 200)
+        body = put_response.json()
+        self.assertEqual(body["key"], "call_script")
+        self.assertEqual(body["content"], "Hi, this is Sales calling about...")
+        self.assertIsNotNone(body["updated_at"])
+        self.assertEqual(body["updated_by"], AUTH[0])
+
+        get_response = self.client.get("/api/templates", auth=AUTH)
+        self.assertEqual(
+            get_response.json()["call_script"]["content"], "Hi, this is Sales calling about..."
+        )
+        # The other template is untouched.
+        self.assertEqual(get_response.json()["email_template"]["content"], "")
+
+    def test_saving_overwrites_previous_content(self):
+        self.client.put("/api/templates/email_template", json={"content": "First draft"}, auth=AUTH)
+        self.client.put("/api/templates/email_template", json={"content": "Final draft"}, auth=AUTH)
+
+        response = self.client.get("/api/templates", auth=AUTH)
+        self.assertEqual(response.json()["email_template"]["content"], "Final draft")
+
+    def test_unknown_template_key_is_404(self):
+        response = self.client.put("/api/templates/bogus_key", json={"content": "x"}, auth=AUTH)
+        self.assertEqual(response.status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()
