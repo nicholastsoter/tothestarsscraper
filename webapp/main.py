@@ -16,6 +16,7 @@ sys.path.insert(0, str(WEBAPP_DIR))
 load_dotenv(WEBAPP_DIR / ".env")
 
 import googlemaps  # noqa: E402
+import requests  # noqa: E402
 from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
@@ -46,6 +47,10 @@ def get_cache() -> find_leads.Cache:
     return find_leads.Cache(find_leads.CACHE_FILE)
 
 
+def get_email_fetch():
+    return requests.get
+
+
 def enforce_rate_limit(username: str) -> None:
     since = time.time() - 3600
     recent = store.count_recent_searches(username, since)
@@ -60,7 +65,7 @@ def enforce_rate_limit(username: str) -> None:
 
 
 @app.get("/api/health")
-def health(username: str = Depends(require_auth)):
+def health():
     return {"status": "ok"}
 
 
@@ -88,10 +93,18 @@ def search(request: SearchRequest, username: str = Depends(require_auth)):
 
     gmaps = get_gmaps_client()
     cache = get_cache()
+    email_fetch = get_email_fetch()
+    call_stats = {}
 
     try:
         leads = find_leads.build_leads(
-            gmaps, cache, [(request.city, request.category)], refresh=False, filters=filters
+            gmaps,
+            cache,
+            [(request.city, request.category)],
+            refresh=False,
+            filters=filters,
+            email_fetch=email_fetch,
+            call_stats=call_stats,
         )
     except (
         googlemaps.exceptions.ApiError,
@@ -101,7 +114,8 @@ def search(request: SearchRequest, username: str = Depends(require_auth)):
     ) as e:
         raise HTTPException(status_code=502, detail=f"Google Places API error: {e}")
 
-    search_id = store.record_search(username, request.model_dump(), leads)
+    was_live_call = call_stats.get("live_api_call", False)
+    search_id = store.record_search(username, request.model_dump(), leads, was_live_call=was_live_call)
 
     return SearchResponse(leads=[Lead(**lead) for lead in leads], search_id=search_id)
 

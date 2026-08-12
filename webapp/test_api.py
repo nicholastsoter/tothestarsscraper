@@ -52,6 +52,18 @@ class FakeGmaps:
         }
 
 
+class FakeEmailResponse:
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
+def fake_email_fetch(url, timeout=None, headers=None):
+    """Stands in for requests.get in email lookups — no real network calls."""
+    slug = url.rsplit("/", 1)[-1].replace(" ", "").replace("place_", "").lower()
+    return FakeEmailResponse(200, f'<a href="mailto:hello@{slug}.example.com">Email us</a>')
+
+
 class ApiTestCase(unittest.TestCase):
     """Each test gets a fresh SQLite file and cache file, and reloads the
     app module so its module-level SearchStore points at them."""
@@ -78,6 +90,7 @@ class ApiTestCase(unittest.TestCase):
         self.main = main
         self.fake_gmaps = FakeGmaps()
         self.main.get_gmaps_client = lambda: self.fake_gmaps
+        self.main.get_email_fetch = lambda: fake_email_fetch
         self.client = TestClient(self.main.app)
 
     def tearDown(self):
@@ -90,17 +103,19 @@ class ApiTestCase(unittest.TestCase):
 
 
 class HealthTests(ApiTestCase):
-    def test_health_requires_auth(self):
+    def test_health_returns_ok_without_credentials(self):
         response = self.client.get("/api/health")
-        self.assertEqual(response.status_code, 401)
-
-    def test_health_with_auth(self):
-        response = self.client.get("/api/health", auth=AUTH)
         self.assertEqual(response.status_code, 200)
+        # Minimal payload only — no DB size, cache contents, or other
+        # internal state, since this route has no auth gating it.
         self.assertEqual(response.json(), {"status": "ok"})
 
-    def test_health_wrong_password(self):
-        response = self.client.get("/api/health", auth=(AUTH[0], "wrong"))
+    def test_health_ignores_credentials_if_sent(self):
+        response = self.client.get("/api/health", auth=(AUTH[0], "wrong-password"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_search_still_requires_auth(self):
+        response = self.client.post("/api/search", json={"city": "Provo, UT", "category": "gym"})
         self.assertEqual(response.status_code, 401)
 
 
@@ -121,6 +136,11 @@ class SearchTests(ApiTestCase):
         self.assertEqual(by_name["Tiny Salon"]["score"], "HIGH")
         self.assertEqual(by_name["Big Chain Salon"]["score"], "LOW")
         self.assertEqual(by_name["Big Chain Salon"]["website"], "")
+
+        # Has a website -> email lookup ran against the fake fetch.
+        self.assertEqual(by_name["Tiny Salon"]["email"], "hello@tinysalon.example.com")
+        # No website -> no lookup attempted, email stays blank.
+        self.assertEqual(by_name["Big Chain Salon"]["email"], "")
 
     def test_search_applies_filters(self):
         response = self.search(min_reviews=10)
@@ -155,6 +175,43 @@ class RateLimitTests(ApiTestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(third.status_code, 429)
         self.assertIn("Rate limit", third.json()["detail"])
+
+
+class RateLimitLiveCallOnlyTests(ApiTestCase):
+    """The rate limit should only count searches that actually hit the
+    Google Places API — a search fully served from find_leads.py's own
+    disk cache is free and shouldn't cost quota."""
+
+    def test_fully_cached_search_does_not_count_toward_rate_limit(self):
+        first = self.search()
+        self.assertEqual(first.status_code, 200)
+        count_after_first = self.main.store.count_recent_searches(AUTH[0], 0)
+        self.assertEqual(count_after_first, 1)
+
+        # Same city/category as `first` -> search results, place details,
+        # and email lookups are all served from cache this time.
+        second = self.search()
+        self.assertEqual(second.status_code, 200)
+        count_after_second = self.main.store.count_recent_searches(AUTH[0], 0)
+        self.assertEqual(count_after_second, 1)
+
+    def test_search_with_a_live_call_counts_toward_rate_limit(self):
+        first = self.search()
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(self.main.store.count_recent_searches(AUTH[0], 0), 1)
+
+        # A different city/category hasn't been cached yet -> live call.
+        second = self.search(city="Ogden, UT")
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(self.main.store.count_recent_searches(AUTH[0], 0), 2)
+
+    def test_cached_search_is_still_recorded_in_history(self):
+        self.search()
+        self.search()  # fully cached, shouldn't count toward rate limit...
+
+        # ...but both should still show up in history.
+        response = self.client.get("/api/history", auth=AUTH)
+        self.assertEqual(len(response.json()), 2)
 
 
 class HistoryTests(ApiTestCase):

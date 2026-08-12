@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 import googlemaps
+import requests
 from googlemaps.exceptions import ApiError, HTTPError, Timeout, TransportError
 
 # ---------------------------------------------------------------------------
@@ -38,6 +40,17 @@ OUTPUT_FILE = Path(__file__).parent / "leads.csv"
 REQUESTS_PER_SECOND = 5
 MAX_RETRIES = 5
 BACKOFF_BASE_SECONDS = 1.5
+
+# Email lookup — Places API doesn't return business emails, so for any lead
+# with a website we fetch its homepage once and look for one. Best-effort
+# only: many sites only offer a contact form, so this often finds nothing.
+EMAIL_FETCH_TIMEOUT_SECONDS = 8
+EMAIL_FETCH_USER_AGENT = "ToTheStarsRatingsLeadFinder/1.0 (+lead research; contact via website)"
+EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+EMAIL_LIKE_FILE_EXTENSIONS = {
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "ico",
+    "css", "js", "woff", "woff2", "ttf", "eot",
+}
 
 # Scoring thresholds — passed into score_lead() as the `thresholds` dict, so
 # a future UI or config file can override them without touching the scoring
@@ -67,12 +80,13 @@ log = logging.getLogger("lead_finder")
 class Cache:
     def __init__(self, path: Path):
         self.path = path
-        self.data = {"searches": {}, "details": {}}
+        self.data = {"searches": {}, "details": {}, "emails": {}}
         if self.path.exists():
             try:
                 self.data = json.loads(self.path.read_text())
                 self.data.setdefault("searches", {})
                 self.data.setdefault("details", {})
+                self.data.setdefault("emails", {})
             except (json.JSONDecodeError, OSError) as e:
                 log.warning("Could not read cache file (%s), starting fresh", e)
 
@@ -107,6 +121,20 @@ class Cache:
 
     def set_details(self, place_id: str, details: dict):
         self.data["details"][place_id] = details
+
+    def get_email(self, website: str, refresh: bool):
+        if refresh:
+            return None
+        entry = self.data["emails"].get(website)
+        if entry is None:
+            return None
+        age_days = (time.time() - entry["timestamp"]) / 86400
+        if age_days > CACHE_TTL_DAYS:
+            return None
+        return entry["email"]
+
+    def set_email(self, website: str, email: str):
+        self.data["emails"][website] = {"timestamp": time.time(), "email": email}
 
 
 # ---------------------------------------------------------------------------
@@ -152,11 +180,12 @@ def call_with_backoff(rate_limiter: RateLimiter, func, *args, **kwargs):
 # Places API
 # ---------------------------------------------------------------------------
 
-def search_places(gmaps, rate_limiter, cache: Cache, city: str, category: str, refresh: bool) -> list:
+def search_places(gmaps, rate_limiter, cache: Cache, city: str, category: str, refresh: bool) -> tuple:
+    """Returns (results, was_cached)."""
     cached = cache.get_search(city, category, refresh)
     if cached is not None:
         log.info("Using cached results for %r in %r (%d places)", category, city, len(cached))
-        return cached
+        return cached, True
 
     query = f"{category} in {city}"
     log.info("Searching Places API: %r", query)
@@ -175,13 +204,14 @@ def search_places(gmaps, rate_limiter, cache: Cache, city: str, category: str, r
     log.info("Found %d results for %r in %r", len(all_results), category, city)
     cache.set_search(city, category, all_results)
     cache.save()
-    return all_results
+    return all_results, False
 
 
-def get_place_details(gmaps, rate_limiter, cache: Cache, place_id: str, refresh: bool) -> dict:
+def get_place_details(gmaps, rate_limiter, cache: Cache, place_id: str, refresh: bool) -> tuple:
+    """Returns (details, was_cached)."""
     cached = cache.get_details(place_id, refresh)
     if cached is not None:
-        return cached
+        return cached, True
 
     response = call_with_backoff(
         rate_limiter,
@@ -195,7 +225,52 @@ def get_place_details(gmaps, rate_limiter, cache: Cache, place_id: str, refresh:
         "website": result.get("website", ""),
     }
     cache.set_details(place_id, details)
-    return details
+    return details, False
+
+
+# ---------------------------------------------------------------------------
+# Email lookup — best-effort scrape of a lead's own homepage. Not part of
+# the Places API; failures (timeouts, non-200s, no email present) are
+# treated as "not found" rather than errors, since most small-business
+# sites won't have a discoverable address at all.
+# ---------------------------------------------------------------------------
+
+def _extract_email_from_html(html: str) -> Optional[str]:
+    mailto_match = re.search(r'href=["\']mailto:([^"\'?]+)', html, re.IGNORECASE)
+    if mailto_match:
+        return mailto_match.group(1).strip()
+
+    for match in EMAIL_REGEX.finditer(html):
+        candidate = match.group(0)
+        tld = candidate.rsplit(".", 1)[-1].lower()
+        if tld not in EMAIL_LIKE_FILE_EXTENSIONS:
+            return candidate
+
+    return None
+
+
+def find_email(website: str, cache: Cache, refresh: bool, fetch=requests.get) -> str:
+    if not website:
+        return ""
+
+    cached = cache.get_email(website, refresh)
+    if cached is not None:
+        return cached
+
+    email = ""
+    try:
+        response = fetch(
+            website,
+            timeout=EMAIL_FETCH_TIMEOUT_SECONDS,
+            headers={"User-Agent": EMAIL_FETCH_USER_AGENT},
+        )
+        if response.status_code == 200:
+            email = _extract_email_from_html(response.text) or ""
+    except requests.RequestException as e:
+        log.info("Could not fetch %r for email lookup (%s)", website, e)
+
+    cache.set_email(website, email)
+    return email
 
 
 # ---------------------------------------------------------------------------
@@ -279,12 +354,26 @@ def _passes_website_filter(has_website: bool, filters: Optional[LeadFilters]) ->
 # Pipeline
 # ---------------------------------------------------------------------------
 
-def build_leads(gmaps, cache: Cache, pairs: list, refresh: bool, filters: Optional[LeadFilters] = None) -> list:
+def build_leads(
+    gmaps,
+    cache: Cache,
+    pairs: list,
+    refresh: bool,
+    filters: Optional[LeadFilters] = None,
+    email_fetch=requests.get,
+    call_stats: Optional[dict] = None,
+) -> list:
+    """call_stats, if given, is populated with call_stats["live_api_call"] =
+    True as soon as any search or Place Details call actually hits Google
+    (as opposed to being served from the local cache). Callers that don't
+    need this (the CLI, existing tests) can ignore the parameter entirely."""
     rate_limiter = RateLimiter(REQUESTS_PER_SECOND)
     leads = []
 
     for city, category in pairs:
-        places = search_places(gmaps, rate_limiter, cache, city, category, refresh)
+        places, was_cached = search_places(gmaps, rate_limiter, cache, city, category, refresh)
+        if not was_cached and call_stats is not None:
+            call_stats["live_api_call"] = True
 
         for place in places:
             rating = place.get("rating")
@@ -296,7 +385,9 @@ def build_leads(gmaps, cache: Cache, pairs: list, refresh: bool, filters: Option
                 continue
 
             place_id = place.get("place_id")
-            details = get_place_details(gmaps, rate_limiter, cache, place_id, refresh)
+            details, details_was_cached = get_place_details(gmaps, rate_limiter, cache, place_id, refresh)
+            if not details_was_cached and call_stats is not None:
+                call_stats["live_api_call"] = True
             cache.save()
 
             website = details.get("website", "")
@@ -304,6 +395,9 @@ def build_leads(gmaps, cache: Cache, pairs: list, refresh: bool, filters: Option
 
             if not _passes_website_filter(has_website, filters):
                 continue
+
+            email = find_email(website, cache, refresh, fetch=email_fetch) if has_website else ""
+            cache.save()
 
             score, reasoning = score_lead(rating, review_count, has_website)
 
@@ -314,6 +408,7 @@ def build_leads(gmaps, cache: Cache, pairs: list, refresh: bool, filters: Option
                 "address": place.get("formatted_address", ""),
                 "phone": details.get("phone", ""),
                 "website": website,
+                "email": email,
                 "rating": rating,
                 "review_count": review_count,
                 "score": score,
@@ -327,7 +422,7 @@ def build_leads(gmaps, cache: Cache, pairs: list, refresh: bool, filters: Option
 
 def write_csv(leads: list, output_path: Path):
     fieldnames = [
-        "business_name", "category", "city", "address", "phone", "website",
+        "business_name", "category", "city", "address", "phone", "website", "email",
         "rating", "review_count", "score", "reasoning", "place_id",
     ]
     with output_path.open("w", newline="", encoding="utf-8") as f:

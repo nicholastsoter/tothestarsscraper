@@ -50,6 +50,19 @@ class FakeGmaps:
         }
 
 
+class FakeEmailResponse:
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
+def fake_email_fetch(url, timeout=None, headers=None):
+    """Stands in for requests.get in email lookups — no real network calls.
+    Deterministic per-URL 'mailto:' so assertions can predict the result."""
+    slug = url.rsplit("/", 1)[-1].replace(" ", "").replace("place_", "").lower()
+    return FakeEmailResponse(200, f'<a href="mailto:hello@{slug}.example.com">Email us</a>')
+
+
 class PipelineTests(unittest.TestCase):
     def test_build_leads_and_cache_and_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,7 +73,7 @@ class PipelineTests(unittest.TestCase):
             cache = Cache(cache_path)
             pairs = [("Salt Lake City, UT", "hair salon")]
 
-            leads = build_leads(gmaps, cache, pairs, refresh=False)
+            leads = build_leads(gmaps, cache, pairs, refresh=False, email_fetch=fake_email_fetch)
 
             # 3 results page 1 + 1 result page 2 (pagination followed)
             self.assertEqual(len(leads), 4)
@@ -71,6 +84,11 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(by_name["Tiny Salon"]["score"], "HIGH")
             self.assertEqual(by_name["Big Chain Salon"]["score"], "LOW")
             self.assertEqual(by_name["Big Chain Salon"]["website"], "")
+
+            # No website -> no email lookup attempted, email stays blank.
+            self.assertEqual(by_name["Big Chain Salon"]["email"], "")
+            # Has website -> the fake fetch's mailto: link is picked up.
+            self.assertEqual(by_name["Tiny Salon"]["email"], "hello@tinysalon.example.com")
 
             # Sorted HIGH -> MEDIUM -> LOW
             scores_in_order = [lead["score"] for lead in leads]
@@ -85,7 +103,7 @@ class PipelineTests(unittest.TestCase):
             # Second run should hit the cache instead of calling the API again.
             gmaps2 = FakeGmaps()
             cache2 = Cache(cache_path)
-            leads2 = build_leads(gmaps2, cache2, pairs, refresh=False)
+            leads2 = build_leads(gmaps2, cache2, pairs, refresh=False, email_fetch=fake_email_fetch)
             self.assertEqual(gmaps2.places_calls, 0)
             self.assertEqual(gmaps2.place_calls, 0)
             self.assertEqual(len(leads2), 4)
@@ -93,7 +111,7 @@ class PipelineTests(unittest.TestCase):
             # --refresh should bypass the cache and re-query.
             gmaps3 = FakeGmaps()
             cache3 = Cache(cache_path)
-            build_leads(gmaps3, cache3, pairs, refresh=True)
+            build_leads(gmaps3, cache3, pairs, refresh=True, email_fetch=fake_email_fetch)
             self.assertEqual(gmaps3.places_calls, 2)
 
 
@@ -115,7 +133,9 @@ class FilterPipelineTests(unittest.TestCase):
     def _build(self, filters):
         gmaps = FakeGmaps()
         cache = Cache(self.cache_path)
-        leads = build_leads(gmaps, cache, self.pairs, refresh=False, filters=filters)
+        leads = build_leads(
+            gmaps, cache, self.pairs, refresh=False, filters=filters, email_fetch=fake_email_fetch
+        )
         return leads, gmaps
 
     def test_min_reviews_filter(self):
@@ -168,7 +188,7 @@ class FilterPipelineTests(unittest.TestCase):
             lines = f.read().splitlines()
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0].split(","), [
-            "business_name", "category", "city", "address", "phone", "website",
+            "business_name", "category", "city", "address", "phone", "website", "email",
             "rating", "review_count", "score", "reasoning", "place_id",
         ])
 

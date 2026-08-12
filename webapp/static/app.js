@@ -1,4 +1,4 @@
-const COLUMNS = ["business_name", "address", "phone", "website", "rating", "review_count", "score", "reasoning"];
+const COLUMNS = ["business_name", "address", "phone", "website", "email", "rating", "review_count", "score", "reasoning"];
 const SCORE_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
 let currentLeads = [];
@@ -53,7 +53,10 @@ loginForm.addEventListener("submit", async (event) => {
   const password = document.getElementById("login-password").value;
   setAuthHeader(username, password);
 
-  const response = await fetch("/api/health", { headers: { Authorization: getAuthHeader() } });
+  // /api/health is unauthenticated (it's a plain liveness check), so it
+  // can't be used to verify credentials — /api/history is cheap, has no
+  // side effects, and still requires auth.
+  const response = await fetch("/api/history", { headers: { Authorization: getAuthHeader() } });
   if (response.ok) {
     hideLogin();
   } else {
@@ -229,6 +232,15 @@ function buildRow(lead) {
     websiteTd.appendChild(a);
   }
   tr.appendChild(websiteTd);
+
+  const emailTd = document.createElement("td");
+  if (lead.email) {
+    const a = document.createElement("a");
+    a.href = `mailto:${lead.email}`;
+    a.textContent = lead.email;
+    emailTd.appendChild(a);
+  }
+  tr.appendChild(emailTd);
 
   tr.appendChild(cell(lead.rating === null || lead.rating === undefined ? "" : lead.rating));
   tr.appendChild(cell(lead.review_count));

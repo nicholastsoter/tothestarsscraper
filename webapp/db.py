@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS searches (
     max_rating REAL,
     has_website INTEGER,
     result_count INTEGER NOT NULL,
-    results_json TEXT NOT NULL
+    results_json TEXT NOT NULL,
+    was_live_call INTEGER NOT NULL DEFAULT 1
 );
 """
 
@@ -42,15 +43,15 @@ class SearchStore:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def record_search(self, username: str, params: dict, leads: list) -> int:
+    def record_search(self, username: str, params: dict, leads: list, was_live_call: bool = True) -> int:
         conn = self._connect()
         try:
             cursor = conn.execute(
                 """
                 INSERT INTO searches
                     (timestamp, username, city, category, min_reviews, max_reviews,
-                     min_rating, max_rating, has_website, result_count, results_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     min_rating, max_rating, has_website, result_count, results_json, was_live_call)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     time.time(),
@@ -64,6 +65,7 @@ class SearchStore:
                     _tri_state_to_int(params.get("has_website")),
                     len(leads),
                     json.dumps(leads),
+                    1 if was_live_call else 0,
                 ),
             )
             conn.commit()
@@ -72,10 +74,16 @@ class SearchStore:
             conn.close()
 
     def count_recent_searches(self, username: str, since_epoch: float) -> int:
+        """Counts only searches that actually hit the Google Places API —
+        cache-hit-only searches don't cost quota and shouldn't count against
+        the rate limit."""
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM searches WHERE username = ? AND timestamp >= ?",
+                """
+                SELECT COUNT(*) AS n FROM searches
+                WHERE username = ? AND timestamp >= ? AND was_live_call = 1
+                """,
                 (username, since_epoch),
             ).fetchone()
             return row["n"]

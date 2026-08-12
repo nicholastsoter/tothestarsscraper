@@ -28,6 +28,7 @@ class Lead(BaseModel):
     address: str
     phone: str
     website: str
+    email: str = ""
     rating: Optional[float] = None
     review_count: int
     score: str

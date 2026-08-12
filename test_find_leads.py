@@ -1,10 +1,17 @@
+import tempfile
 import unittest
+from pathlib import Path
+
+import requests
 
 from find_leads import (
     DEFAULT_SCORING_THRESHOLDS,
+    Cache,
     LeadFilters,
+    _extract_email_from_html,
     _passes_review_and_rating_filters,
     _passes_website_filter,
+    find_email,
     score_lead,
 )
 
@@ -106,6 +113,89 @@ class WebsiteFilterTests(unittest.TestCase):
         filters = LeadFilters(has_website=False)
         self.assertTrue(_passes_website_filter(False, filters))
         self.assertFalse(_passes_website_filter(True, filters))
+
+
+class FakeResponse:
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
+class ExtractEmailFromHtmlTests(unittest.TestCase):
+    def test_prefers_mailto_link_over_plain_text_match(self):
+        html = '<a href="mailto:owner@example.com">Email us</a> or write to noreply@example.com'
+        self.assertEqual(_extract_email_from_html(html), "owner@example.com")
+
+    def test_falls_back_to_plain_text_email(self):
+        html = "<footer>Reach us at hello@business.example.com</footer>"
+        self.assertEqual(_extract_email_from_html(html), "hello@business.example.com")
+
+    def test_skips_image_and_asset_false_positives(self):
+        html = '<img src="logo@2x.png"> <script src="bundle@1.js"></script>'
+        self.assertIsNone(_extract_email_from_html(html))
+
+    def test_skips_asset_looking_matches_to_find_real_email_later(self):
+        html = '<img src="logo@2x.png"> contact: sales@business.example.com'
+        self.assertEqual(_extract_email_from_html(html), "sales@business.example.com")
+
+    def test_no_email_present(self):
+        html = "<p>Contact us through our form.</p>"
+        self.assertIsNone(_extract_email_from_html(html))
+
+
+class FindEmailTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.cache = Cache(Path(self._tmp.name) / "cache.json")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_finds_and_caches_email(self):
+        calls = []
+
+        def fetch(url, timeout=None, headers=None):
+            calls.append(url)
+            return FakeResponse(200, '<a href="mailto:hi@shop.example.com">Email</a>')
+
+        email = find_email("https://shop.example.com", self.cache, refresh=False, fetch=fetch)
+        self.assertEqual(email, "hi@shop.example.com")
+        self.assertEqual(len(calls), 1)
+
+        # Second call should be served from cache, not fetch again.
+        email2 = find_email("https://shop.example.com", self.cache, refresh=False, fetch=fetch)
+        self.assertEqual(email2, "hi@shop.example.com")
+        self.assertEqual(len(calls), 1)
+
+    def test_no_website_returns_blank_without_fetching(self):
+        def fetch(url, timeout=None, headers=None):
+            raise AssertionError("should not fetch when there's no website")
+
+        self.assertEqual(find_email("", self.cache, refresh=False, fetch=fetch), "")
+
+    def test_non_200_response_is_treated_as_not_found(self):
+        def fetch(url, timeout=None, headers=None):
+            return FakeResponse(404, "")
+
+        self.assertEqual(find_email("https://gone.example.com", self.cache, refresh=False, fetch=fetch), "")
+
+    def test_network_error_is_treated_as_not_found(self):
+        def fetch(url, timeout=None, headers=None):
+            raise requests.exceptions.ConnectionError("boom")
+
+        self.assertEqual(find_email("https://down.example.com", self.cache, refresh=False, fetch=fetch), "")
+
+    def test_refresh_bypasses_cache(self):
+        call_count = {"n": 0}
+
+        def fetch(url, timeout=None, headers=None):
+            call_count["n"] += 1
+            return FakeResponse(200, f'<a href="mailto:v{call_count["n"]}@example.com">Email</a>')
+
+        first = find_email("https://site.example.com", self.cache, refresh=False, fetch=fetch)
+        second = find_email("https://site.example.com", self.cache, refresh=True, fetch=fetch)
+        self.assertEqual(first, "v1@example.com")
+        self.assertEqual(second, "v2@example.com")
 
 
 if __name__ == "__main__":
