@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import find_leads  # noqa: E402
 from auth import require_auth  # noqa: E402
-from db import SearchStore  # noqa: E402
+from db import PostgresSearchStore, SearchStore  # noqa: E402
 from models import (  # noqa: E402
     ContactedListEntry,
     ContactedRequest,
@@ -48,17 +48,24 @@ TEMPLATE_KEYS = ("call_script", "email_template")
 app = FastAPI(title="To The Stars Ratings — Lead Finder")
 
 # Vercel's Python runtime filesystem is read-only outside /tmp, and /tmp
-# itself isn't shared or persisted across invocations/cold starts. Locally
-# (and on any host with a normal writable disk) this keeps writing next to
-# main.py as before, so leads.db and the cache actually persist there.
+# itself isn't shared or persisted across invocations/cold starts — so a
+# local SQLite file there loses everything on the next cold start (or even
+# the next request, if it lands on a different instance). If a Postgres
+# connection string is configured (e.g. via Vercel's Postgres/Neon
+# integration), use that for real persistence instead; otherwise fall back
+# to local SQLite, which is what local dev and the test suite use.
 IS_VERCEL = bool(os.environ.get("VERCEL"))
-DEFAULT_DB_PATH = Path("/tmp/leads.db") if IS_VERCEL else WEBAPP_DIR / "leads.db"
+DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
 
 if IS_VERCEL:
     find_leads.CACHE_FILE = Path("/tmp/places_cache.json")
 
-DB_PATH = Path(os.environ.get("LEADS_DB_PATH", DEFAULT_DB_PATH))
-store = SearchStore(DB_PATH)
+if DATABASE_URL:
+    store = PostgresSearchStore(DATABASE_URL)
+else:
+    DEFAULT_DB_PATH = Path("/tmp/leads.db") if IS_VERCEL else WEBAPP_DIR / "leads.db"
+    DB_PATH = Path(os.environ.get("LEADS_DB_PATH", DEFAULT_DB_PATH))
+    store = SearchStore(DB_PATH)
 
 RATE_LIMIT_PER_HOUR = int(os.environ.get("RATE_LIMIT_PER_HOUR", "20"))
 
