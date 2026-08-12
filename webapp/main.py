@@ -25,6 +25,7 @@ import find_leads  # noqa: E402
 from auth import require_auth  # noqa: E402
 from db import SearchStore  # noqa: E402
 from models import (  # noqa: E402
+    ContactedListEntry,
     ContactedRequest,
     ContactedResponse,
     ContactedStats,
@@ -35,6 +36,11 @@ from models import (  # noqa: E402
     SearchResponse,
     TemplateContent,
     TemplateResponse,
+)
+
+CONTACTED_DETAIL_FIELDS = (
+    "business_name", "address", "phone", "website", "email",
+    "city", "category", "rating", "review_count", "score",
 )
 
 TEMPLATE_KEYS = ("call_script", "email_template")
@@ -185,7 +191,8 @@ def history_detail(search_id: int, username: str = Depends(require_auth)):
 
 @app.post("/api/contacted", response_model=ContactedResponse)
 def set_contacted(request: ContactedRequest, username: str = Depends(require_auth)):
-    result = store.set_contacted(request.place_id, request.contacted, username)
+    details = {field: getattr(request, field) for field in CONTACTED_DETAIL_FIELDS}
+    result = store.set_contacted(request.place_id, request.contacted, username, details=details)
     return ContactedResponse(**result)
 
 
@@ -194,6 +201,11 @@ def contacted_stats(username: str = Depends(require_auth)):
     today = store.count_contacted_since(_start_of_today_epoch())
     this_week = store.count_contacted_since(_start_of_week_epoch())
     return ContactedStats(today=today, this_week=this_week)
+
+
+@app.get("/api/contacted/list", response_model=list[ContactedListEntry])
+def contacted_list(username: str = Depends(require_auth)):
+    return store.list_contacted()
 
 
 @app.get("/api/templates", response_model=dict[str, TemplateResponse])

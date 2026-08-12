@@ -149,6 +149,9 @@ document.querySelectorAll(".tab-button").forEach((button) => {
     if (button.dataset.tab === "history-tab") {
       loadHistory();
     }
+    if (button.dataset.tab === "contacted-tab") {
+      loadContactedList();
+    }
   });
 });
 
@@ -338,6 +341,27 @@ function contactedTitle(lead) {
   return `Marked contacted ${new Date(lead.contacted_at * 1000).toLocaleString()}`;
 }
 
+function contactedRequestBody(lead, contacted) {
+  // Business details are only needed when checking the box — they seed the
+  // Contacted list so it doesn't depend on old search history sticking
+  // around. Unchecking only needs place_id/contacted; the backend keeps
+  // whatever details it already has on file.
+  return {
+    place_id: lead.place_id,
+    contacted,
+    business_name: lead.business_name,
+    address: lead.address,
+    phone: lead.phone,
+    website: lead.website,
+    email: lead.email,
+    city: lead.city,
+    category: lead.category,
+    rating: lead.rating,
+    review_count: lead.review_count,
+    score: lead.score,
+  };
+}
+
 async function toggleContacted(lead, checkbox, tr) {
   const nextValue = checkbox.checked;
   checkbox.disabled = true;
@@ -346,7 +370,7 @@ async function toggleContacted(lead, checkbox, tr) {
     const response = await apiFetch("/api/contacted", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ place_id: lead.place_id, contacted: nextValue }),
+      body: JSON.stringify(contactedRequestBody(lead, nextValue)),
     });
 
     if (!response.ok) {
@@ -475,5 +499,118 @@ async function loadHistoryEntry(searchId) {
   } catch (err) {
     historyStatus.textContent = err.message;
     historyStatus.className = "status error";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Contacted list — every business currently marked Contacted, with the
+// business details captured at the moment it was checked.
+// ---------------------------------------------------------------------------
+
+const contactedStatus = document.getElementById("contacted-status");
+const contactedBody = document.querySelector("#contacted-table tbody");
+
+async function loadContactedList() {
+  contactedStatus.textContent = "Loading…";
+  contactedStatus.className = "status loading";
+  try {
+    const response = await apiFetch("/api/contacted/list");
+    if (!response.ok) {
+      const body = await safeJson(response);
+      throw new Error(body?.detail || `Failed to load contacted list (HTTP ${response.status})`);
+    }
+    const entries = await response.json();
+    renderContactedList(entries);
+    contactedStatus.textContent = entries.length ? "" : "No businesses marked Contacted yet.";
+    contactedStatus.className = "status";
+  } catch (err) {
+    contactedStatus.textContent = err.message;
+    contactedStatus.className = "status error";
+  }
+}
+
+function renderContactedList(entries) {
+  contactedBody.innerHTML = "";
+  for (const entry of entries) {
+    contactedBody.appendChild(buildContactedRow(entry));
+  }
+}
+
+function buildContactedRow(entry) {
+  const tr = document.createElement("tr");
+
+  tr.appendChild(cell(entry.business_name));
+  tr.appendChild(cell(entry.address, "wrap"));
+  tr.appendChild(cell(entry.phone));
+
+  const websiteTd = document.createElement("td");
+  if (entry.website) {
+    const a = document.createElement("a");
+    a.href = entry.website;
+    a.textContent = entry.website;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    websiteTd.appendChild(a);
+  }
+  tr.appendChild(websiteTd);
+
+  const emailTd = document.createElement("td");
+  if (entry.email) {
+    const a = document.createElement("a");
+    a.href = `mailto:${entry.email}`;
+    a.textContent = entry.email;
+    emailTd.appendChild(a);
+  }
+  tr.appendChild(emailTd);
+
+  tr.appendChild(cell(entry.city));
+  tr.appendChild(cell(entry.category));
+  tr.appendChild(cell(entry.contacted_at ? new Date(entry.contacted_at * 1000).toLocaleString() : ""));
+
+  const actionTd = document.createElement("td");
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.textContent = "Remove";
+  removeButton.className = "remove-button";
+  removeButton.addEventListener("click", () => removeContacted(entry.place_id, tr, removeButton));
+  actionTd.appendChild(removeButton);
+  tr.appendChild(actionTd);
+
+  return tr;
+}
+
+async function removeContacted(placeId, tr, button) {
+  button.disabled = true;
+  try {
+    const response = await apiFetch("/api/contacted", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ place_id: placeId, contacted: false }),
+    });
+
+    if (!response.ok) {
+      const body = await safeJson(response);
+      throw new Error(body?.detail || `Failed to update (HTTP ${response.status})`);
+    }
+
+    tr.remove();
+    loadContactedStats();
+    if (!contactedBody.children.length) {
+      contactedStatus.textContent = "No businesses marked Contacted yet.";
+      contactedStatus.className = "status";
+    }
+
+    // Keep the results table's checkbox in sync if this lead is showing there.
+    const stale = currentLeads.find((lead) => lead.place_id === placeId);
+    if (stale) {
+      stale.contacted = false;
+      stale.contacted_at = null;
+      renderTable(currentLeads);
+    }
+  } catch (err) {
+    contactedStatus.textContent = err.message;
+    contactedStatus.className = "status error";
+  } finally {
+    button.disabled = false;
   }
 }

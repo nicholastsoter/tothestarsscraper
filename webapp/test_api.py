@@ -307,6 +307,82 @@ class ContactedTests(ApiTestCase):
         self.assertIsNone(body["contacted_at"])
 
 
+class ContactedListTests(ApiTestCase):
+    def test_list_requires_auth(self):
+        response = self.client.get("/api/contacted/list")
+        self.assertEqual(response.status_code, 401)
+
+    def test_list_starts_empty(self):
+        response = self.client.get("/api/contacted/list", auth=AUTH)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    def test_marking_with_details_appears_in_list(self):
+        self.client.post(
+            "/api/contacted",
+            json={
+                "place_id": "place_Tiny Salon",
+                "contacted": True,
+                "business_name": "Tiny Salon",
+                "phone": "555-1111",
+                "website": "https://tinysalon.example.com",
+                "email": "hi@tinysalon.example.com",
+                "city": "Salt Lake City, UT",
+                "category": "hair salon",
+                "score": "HIGH",
+            },
+            auth=AUTH,
+        )
+
+        response = self.client.get("/api/contacted/list", auth=AUTH)
+        self.assertEqual(response.status_code, 200)
+        entries = response.json()
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["business_name"], "Tiny Salon")
+        self.assertEqual(entry["email"], "hi@tinysalon.example.com")
+        self.assertEqual(entry["score"], "HIGH")
+        self.assertIsNotNone(entry["contacted_at"])
+
+    def test_unmarking_removes_from_list(self):
+        self.client.post(
+            "/api/contacted",
+            json={"place_id": "place_A", "contacted": True, "business_name": "A Salon"},
+            auth=AUTH,
+        )
+        self.client.post("/api/contacted", json={"place_id": "place_A", "contacted": False}, auth=AUTH)
+
+        response = self.client.get("/api/contacted/list", auth=AUTH)
+        self.assertEqual(response.json(), [])
+
+    def test_details_preserved_when_re_marking_without_details(self):
+        self.client.post(
+            "/api/contacted",
+            json={"place_id": "place_A", "contacted": True, "business_name": "A Salon", "phone": "555-0000"},
+            auth=AUTH,
+        )
+        self.client.post("/api/contacted", json={"place_id": "place_A", "contacted": False}, auth=AUTH)
+        self.client.post("/api/contacted", json={"place_id": "place_A", "contacted": True}, auth=AUTH)
+
+        response = self.client.get("/api/contacted/list", auth=AUTH)
+        entries = response.json()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["business_name"], "A Salon")
+        self.assertEqual(entries[0]["phone"], "555-0000")
+
+    def test_list_orders_most_recently_contacted_first(self):
+        self.client.post(
+            "/api/contacted", json={"place_id": "place_A", "contacted": True, "business_name": "A"}, auth=AUTH
+        )
+        self.client.post(
+            "/api/contacted", json={"place_id": "place_B", "contacted": True, "business_name": "B"}, auth=AUTH
+        )
+
+        response = self.client.get("/api/contacted/list", auth=AUTH)
+        names = [entry["business_name"] for entry in response.json()]
+        self.assertEqual(names, ["B", "A"])
+
+
 class ContactedStatsTests(ApiTestCase):
     def test_stats_requires_auth(self):
         response = self.client.get("/api/contacted/stats")

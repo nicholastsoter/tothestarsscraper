@@ -206,6 +206,14 @@ tr.row-contacted { opacity: 0.55; }
 tr.row-contacted:hover { opacity: 0.85; }
 #results-table td:has(input[type="checkbox"]) { text-align: center; }
 
+.remove-button {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  background: transparent;
+  color: var(--low);
+  border-color: var(--low);
+}
+
 .login-overlay {
   position: fixed;
   inset: 0;

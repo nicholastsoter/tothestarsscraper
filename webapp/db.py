@@ -29,7 +29,17 @@ CREATE TABLE IF NOT EXISTS contacted (
     place_id TEXT PRIMARY KEY,
     contacted INTEGER NOT NULL,
     contacted_at REAL,
-    username TEXT
+    username TEXT,
+    business_name TEXT,
+    address TEXT,
+    phone TEXT,
+    website TEXT,
+    email TEXT,
+    city TEXT,
+    category TEXT,
+    rating REAL,
+    review_count INTEGER,
+    score TEXT
 );
 
 CREATE TABLE IF NOT EXISTS templates (
@@ -40,6 +50,23 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 """
 
+# Columns added to `contacted` after it first shipped. CREATE TABLE IF NOT
+# EXISTS is a no-op against an existing table, so a database created before
+# this change wouldn't otherwise pick these up — _ensure_columns() below
+# adds whatever's missing.
+CONTACTED_DETAIL_COLUMNS = {
+    "business_name": "TEXT",
+    "address": "TEXT",
+    "phone": "TEXT",
+    "website": "TEXT",
+    "email": "TEXT",
+    "city": "TEXT",
+    "category": "TEXT",
+    "rating": "REAL",
+    "review_count": "INTEGER",
+    "score": "TEXT",
+}
+
 
 class SearchStore:
     def __init__(self, db_path: Path):
@@ -48,9 +75,17 @@ class SearchStore:
         conn = self._connect()
         try:
             conn.executescript(SCHEMA)
+            self._ensure_columns(conn, "contacted", CONTACTED_DETAIL_COLUMNS)
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict) -> None:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, sql_type in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -135,23 +170,47 @@ class SearchStore:
         finally:
             conn.close()
 
-    def set_contacted(self, place_id: str, contacted: bool, username: str) -> dict:
+    def set_contacted(self, place_id: str, contacted: bool, username: str, details: Optional[dict] = None) -> dict:
+        """details, if given, is whatever business info the caller has on
+        hand (name, phone, etc.) — stored so the contacted list is
+        self-contained rather than depending on search history sticking
+        around. COALESCE keeps the previously stored value when a caller
+        (e.g. an un-contact toggle) doesn't send details."""
+        details = details or {}
         conn = self._connect()
         try:
             contacted_at = time.time() if contacted else None
+            columns = list(CONTACTED_DETAIL_COLUMNS)
             conn.execute(
-                """
-                INSERT INTO contacted (place_id, contacted, contacted_at, username)
-                VALUES (?, ?, ?, ?)
+                f"""
+                INSERT INTO contacted (place_id, contacted, contacted_at, username, {", ".join(columns)})
+                VALUES (?, ?, ?, ?, {", ".join("?" for _ in columns)})
                 ON CONFLICT(place_id) DO UPDATE SET
                     contacted = excluded.contacted,
                     contacted_at = excluded.contacted_at,
-                    username = excluded.username
+                    username = excluded.username,
+                    {", ".join(f"{c} = COALESCE(excluded.{c}, {c})" for c in columns)}
                 """,
-                (place_id, 1 if contacted else 0, contacted_at, username),
+                (place_id, 1 if contacted else 0, contacted_at, username, *(details.get(c) for c in columns)),
             )
             conn.commit()
             return {"place_id": place_id, "contacted": contacted, "contacted_at": contacted_at}
+        finally:
+            conn.close()
+
+    def list_contacted(self) -> list:
+        conn = self._connect()
+        try:
+            columns = list(CONTACTED_DETAIL_COLUMNS)
+            rows = conn.execute(
+                f"""
+                SELECT place_id, contacted_at, username, {", ".join(columns)}
+                FROM contacted
+                WHERE contacted = 1
+                ORDER BY contacted_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
         finally:
             conn.close()
 

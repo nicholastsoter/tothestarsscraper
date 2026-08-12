@@ -33,6 +33,7 @@
   <nav>
     <button class="tab-button active" data-tab="search-tab">Search</button>
     <button class="tab-button" data-tab="history-tab">History</button>
+    <button class="tab-button" data-tab="contacted-tab">Contacted</button>
   </nav>
 </header>
 
@@ -167,6 +168,28 @@
       </thead>
       <tbody></tbody>
     </table>
+  </section>
+
+  <section id="contacted-tab" class="tab-panel">
+    <div id="contacted-status" class="status" role="status" aria-live="polite"></div>
+    <div class="table-wrap">
+      <table id="contacted-table">
+        <thead>
+          <tr>
+            <th data-key="business_name">Business</th>
+            <th data-key="address">Address</th>
+            <th data-key="phone">Phone</th>
+            <th data-key="website">Website</th>
+            <th data-key="email">Email</th>
+            <th data-key="city">City</th>
+            <th data-key="category">Category</th>
+            <th data-key="contacted_at">Contacted</th>
+            <th data-key="uncontact">&nbsp;</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </section>
 </main>
 

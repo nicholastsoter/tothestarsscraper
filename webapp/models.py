@@ -41,6 +41,18 @@ class Lead(BaseModel):
 class ContactedRequest(BaseModel):
     place_id: str
     contacted: bool
+    # Business details are optional — sent when checking a box (so the
+    # contacted list is self-contained) but not required when unchecking.
+    business_name: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    category: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+    score: Optional[str] = None
 
 
 class ContactedResponse(BaseModel):
@@ -52,6 +64,22 @@ class ContactedResponse(BaseModel):
 class ContactedStats(BaseModel):
     today: int
     this_week: int
+
+
+class ContactedListEntry(BaseModel):
+    place_id: str
+    contacted_at: Optional[float] = None
+    username: Optional[str] = None
+    business_name: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    category: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+    score: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
