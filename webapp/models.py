@@ -1,0 +1,58 @@
+from typing import List, Optional
+
+from pydantic import BaseModel, field_validator
+
+
+class SearchRequest(BaseModel):
+    city: str
+    category: str
+    min_reviews: Optional[int] = None
+    max_reviews: Optional[int] = None
+    min_rating: Optional[float] = None
+    max_rating: Optional[float] = None
+    has_website: Optional[bool] = None
+
+    @field_validator("city", "category")
+    @classmethod
+    def not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+
+class Lead(BaseModel):
+    business_name: str
+    category: str
+    city: str
+    address: str
+    phone: str
+    website: str
+    rating: Optional[float] = None
+    review_count: int
+    score: str
+    reasoning: str
+    place_id: str
+
+
+class SearchResponse(BaseModel):
+    leads: List[Lead]
+    search_id: int
+
+
+class HistoryEntry(BaseModel):
+    id: int
+    timestamp: float
+    username: str
+    city: str
+    category: str
+    min_reviews: Optional[int] = None
+    max_reviews: Optional[int] = None
+    min_rating: Optional[float] = None
+    max_rating: Optional[float] = None
+    has_website: Optional[bool] = None
+    result_count: int
+
+
+class HistoryDetail(HistoryEntry):
+    results: List[Lead]

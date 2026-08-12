@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>To The Stars Ratings — Lead Finder</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="login-overlay" class="login-overlay">
+  <form id="login-form" class="login-form">
+    <h2>Sign in</h2>
+    <p class="login-hint">Use the WEBAPP_USER / WEBAPP_PASSWORD credentials configured on the server.</p>
+    <label>
+      Username
+      <input type="text" id="login-username" autocomplete="username" required>
+    </label>
+    <label>
+      Password
+      <input type="password" id="login-password" autocomplete="current-password" required>
+    </label>
+    <div id="login-error" class="status error"></div>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+
+<header>
+  <h1>Lead Finder</h1>
+  <nav>
+    <button class="tab-button active" data-tab="search-tab">Search</button>
+    <button class="tab-button" data-tab="history-tab">History</button>
+  </nav>
+</header>
+
+<main>
+  <section id="search-tab" class="tab-panel active">
+    <form id="search-form">
+      <div class="field-row">
+        <label>
+          City
+          <input type="text" id="city" name="city" placeholder="Salt Lake City, UT" required>
+        </label>
+        <label>
+          Category
+          <input type="text" id="category" name="category" list="category-options" placeholder="hair salon" required>
+          <datalist id="category-options">
+            <option value="hair salon">
+            <option value="nail salon">
+            <option value="auto repair">
+            <option value="hvac contractor">
+            <option value="landscaping">
+            <option value="plumber">
+            <option value="electrician">
+            <option value="roofing contractor">
+            <option value="restaurant">
+            <option value="coffee shop">
+            <option value="dentist">
+            <option value="chiropractor">
+            <option value="gym">
+            <option value="pet groomer">
+            <option value="dry cleaner">
+            <option value="locksmith">
+            <option value="real estate agency">
+            <option value="insurance agency">
+            <option value="law firm">
+            <option value="accounting firm">
+          </datalist>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>
+          Min reviews
+          <input type="number" id="min_reviews" name="min_reviews" min="0" step="1">
+        </label>
+        <label>
+          Max reviews
+          <input type="number" id="max_reviews" name="max_reviews" min="0" step="1">
+        </label>
+        <label>
+          Min rating
+          <input type="number" id="min_rating" name="min_rating" min="1" max="5" step="0.1">
+        </label>
+        <label>
+          Max rating
+          <input type="number" id="max_rating" name="max_rating" min="1" max="5" step="0.1">
+        </label>
+        <label>
+          Website
+          <select id="has_website" name="has_website">
+            <option value="">Any</option>
+            <option value="true">Has website</option>
+            <option value="false">No website</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="field-row actions">
+        <button type="submit" id="search-button">Search</button>
+        <button type="button" id="export-button" disabled>Export CSV</button>
+      </div>
+    </form>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <div class="table-wrap">
+      <table id="results-table">
+        <thead>
+          <tr>
+            <th data-key="business_name">Business</th>
+            <th data-key="address">Address</th>
+            <th data-key="phone">Phone</th>
+            <th data-key="website">Website</th>
+            <th data-key="rating">Rating</th>
+            <th data-key="review_count">Reviews</th>
+            <th data-key="score">Score</th>
+            <th data-key="reasoning">Why</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="history-tab" class="tab-panel">
+    <div id="history-status" class="status" role="status" aria-live="polite"></div>
+    <table id="history-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>City</th>
+          <th>Category</th>
+          <th>Results</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
