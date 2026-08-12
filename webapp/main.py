@@ -127,7 +127,10 @@ def enforce_rate_limit(username: str) -> None:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    # "storage" reports which backend is active — not the connection string
+    # itself — so a persistence problem in production can be diagnosed from
+    # this endpoint alone, without dashboard access to check env vars.
+    return {"status": "ok", "storage": "postgres" if DATABASE_URL else "sqlite"}
 
 
 @app.post("/api/search", response_model=SearchResponse)

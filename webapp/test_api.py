@@ -107,9 +107,18 @@ class HealthTests(ApiTestCase):
     def test_health_returns_ok_without_credentials(self):
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
-        # Minimal payload only — no DB size, cache contents, or other
+        # Minimal payload only — status + which storage backend is active,
+        # no DB size, cache contents, connection strings, or other
         # internal state, since this route has no auth gating it.
-        self.assertEqual(response.json(), {"status": "ok"})
+        body = response.json()
+        self.assertEqual(body["status"], "ok")
+        self.assertEqual(set(body.keys()), {"status", "storage"})
+
+    def test_health_reports_sqlite_backend_in_tests(self):
+        # Tests never set DATABASE_URL/POSTGRES_URL, so this pins down that
+        # the detection logic picks SQLite by default (and stays that way).
+        response = self.client.get("/api/health")
+        self.assertEqual(response.json()["storage"], "sqlite")
 
     def test_health_ignores_credentials_if_sent(self):
         response = self.client.get("/api/health", auth=(AUTH[0], "wrong-password"))
